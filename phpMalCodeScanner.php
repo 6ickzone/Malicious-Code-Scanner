@@ -1,81 +1,103 @@
 <?php
 /*
-Plugin Name: php Malicious Code Scanner
-Plugin URI: http://www.mikestowe.com/phpmalcode
-Description: The php Malicious Code Scanner checks all files for one of the most common malicious code attacks, the eval( base64_decode() ) attack...
-Version: 1.3 alpha
-Author: Michael Stowe
-Author URI: http://www.mikestowe.com
-Credits: Based on the idea of Er. Rochak Chauhan (http://www.rochakchauhan.com/), rewritten for use with a cron job
-License: GPL-2
+Plugin Name: 6caner - PHP Malcode Scanner
+Plugin URI: https://github.com/6ickzone/6caner
+Description: 6caner is a lightweight PHP scanner for detecting common malware patterns such as eval(base64_decode()), system(), shell_exec(), etc.
+Version: 1.0
+Author:Michael Stowe,0x6ick (6ickZone)
+License: GPL-2.0
 */
 
+/*
+╔═╗┬ ┬┌─┐┌─┐┌┬┐┌─┐┌─┐
+║  ├─┤├┤ ├─┤ │ ├┤ └─┐
+╚═╝┴ ┴└  ┴ ┴ ┴ └─┘└─┘
+Coded by 0x6ick (based on open mod by Michael Stowe, now supercharged)
+*/
 
-// Set to your email:
-define('SEND_EMAIL_ALERTS_TO','youremail@example.com');
+define('SEND_EMAIL_ALERTS_TO', 'youremail@example.com'); // Optional: change if you want email alert
+define('LOG_FILE', 'infected.log'); // Log file
 
+class SixCaner {
+    public $infected_files = [];
+    private $scanned_files = [];
 
-############################################ START CLASS
+    function __construct($start = '.') {
+        $this->scan($start);
+        $this->sendAlert();
+    }
 
+    function scan($dir) {
+        $this->scanned_files[] = $dir;
+        $files = scandir($dir);
+        if (!is_array($files)) return;
 
-class phpMalCodeScan {
+        foreach ($files as $file) {
+            if ($file === '.' || $file === '..') continue;
+            $path = $dir . '/' . $file;
 
-	public $infected_files = array();
-	private $scanned_files = array();
-	
-	
-	function __construct() {
-		$this->scan(dirname(__FILE__));
-		$this->sendalert();
-	}
-	
-	
-	function scan($dir) {
-		$this->scanned_files[] = $dir;
-		$files = scandir($dir);
-		
-		if(!is_array($files)) {
-			throw new Exception('Unable to scan directory ' . $dir . '.  Please make sure proper permissions have been set.');
-		}
-		
-		foreach($files as $file) {
-			if(is_file($dir.'/'.$file) && !in_array($dir.'/'.$file,$this->scanned_files)) {
-				$this->check(file_get_contents($dir.'/'.$file),$dir.'/'.$file);
-			} elseif(is_dir($dir.'/'.$file) && substr($file,0,1) != '.') {
-				$this->scan($dir.'/'.$file);
-			}
-		}
-	}
-	
-	
-	function check($contents,$file) {
-		$this->scanned_files[] = $file;
-		if(preg_match('/(?<![a-z0-9_])eval\((base64|eval|\$_|\$\$|\$[A-Za-z_0-9\{]*(\(|\{|\[))/i',$contents)) {
-			$this->infected_files[] = $file;
-		}
-	}
+            if (is_dir($path)) {
+                $this->scan($path);
+            } elseif (is_file($path) && pathinfo($path, PATHINFO_EXTENSION) === 'php') {
+                if (!in_array($path, $this->scanned_files)) {
+                    $this->check(file_get_contents($path), $path);
+                }
+            }
+        }
+    }
 
+    function check($contents, $file) {
+        $this->scanned_files[] = $file;
 
-	function sendalert() {
-		if(count($this->infected_files) != 0) {
-			$message = "== MALICIOUS CODE FOUND == \n\n";
-			$message .= "The following files appear to be infected: \n";
-			foreach($this->infected_files as $inf) {
-				$message .= "  -  $inf \n";
-			}
-			mail(SEND_EMAIL_ALERTS_TO,'Malicious Code Found!',$message,'FROM:');
-		}
-	}
+        $patterns = [
+            '/eval\s*\s*base64_decode/i',
+            '/eval\s*\s*gzuncompress/i',
+            '/eval\s*\s*gzinflate/i',
+            '/preg_replace\s*.*\/e.*/i',
+            '/assert\s*/i',
+            '/system\s*/i',
+            '/exec\s*/i',
+            '/shell_exec\s*/i',
+            '/passthru\s*/i',
+            '/popen\s*/i',
+            '/proc_open\s*/i',
+            '/create_function\s*/i',
+        ];
 
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $contents, $matches)) {
+                $this->infected_files[] = $file;
+                $snippet = substr($contents, stripos($contents, $matches[0]) - 20, 100);
+                $this->log("[!] Suspicious: $file\n    >> " . trim($matches[0]) . "\n    Snippet: " . trim($snippet) . "\n");
+                break;
+            }
+        }
+    }
 
+    function log($message) {
+        file_put_contents(LOG_FILE, $message . "\n", FILE_APPEND);
+        echo $message . "\n";
+    }
+
+    function sendAlert() {
+        if (!empty($this->infected_files)) {
+            $message = "6caner Alert - Malicious Code Detected:\n\n";
+            foreach ($this->infected_files as $inf) {
+                $message .= " - $inf\n";
+            }
+
+            // Email if needed
+            if (SEND_EMAIL_ALERTS_TO !== 'youremail@example.com') {
+                @mail(SEND_EMAIL_ALERTS_TO, '6caner Malware Alert', $message, "From: scanner@localhost");
+            }
+        }
+    }
 }
 
+// CLI support
+$scan_path = isset($argv[1]) ? $argv[1] : getcwd();
 
-############################################ INITIATE CLASS
-
-ini_set('memory_limit', '-1'); ## Avoid memory errors (i.e in foreachloop)
-
-new phpMalCodeScan;
-
+ini_set('memory_limit', '-1');
+new SixCaner($scan_path);
 
 ?>
